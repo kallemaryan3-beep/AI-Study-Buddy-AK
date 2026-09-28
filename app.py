@@ -1,8 +1,9 @@
 import streamlit as st
 from google import genai
 
+
 # =========================================================
-# PAGE
+# PAGE SETTINGS
 # =========================================================
 
 st.set_page_config(
@@ -11,67 +12,144 @@ st.set_page_config(
     layout="wide"
 )
 
+
 # =========================================================
 # GOOGLE LOGIN
 # =========================================================
 
 if not st.user.is_logged_in:
+
     st.title("📚 Study Buddy")
-    st.subheader("Welcome!")
 
-    st.write("Sign in with Google to use Study Buddy.")
+    st.subheader("Welcome to Study Buddy!")
 
-    if st.button("🔵 Sign in with Google", use_container_width=True):
+    st.write(
+        "Sign in with Google to access your study tools."
+    )
+
+    if st.button(
+        "🔵 Sign in with Google",
+        use_container_width=True
+    ):
         st.login()
 
     st.stop()
 
+
 # =========================================================
-# GOOGLE USER
+# GOOGLE ACCOUNT
 # =========================================================
 
-name = st.user.get("name", "Student")
-email = st.user.get("email", "")
-email_verified = st.user.get("email_verified", False)
+name = st.user.get(
+    "name",
+    "Student"
+)
 
-if not email or not email_verified:
-    st.error("❌ Your Google account could not be verified.")
+email = st.user.get(
+    "email",
+    ""
+)
+
+email_verified = st.user.get(
+    "email_verified",
+    False
+)
+
+
+if not email:
+    st.error(
+        "❌ Google did not provide an email address."
+    )
     st.stop()
 
+
+if not email_verified:
+    st.error(
+        "❌ Google could not verify this account."
+    )
+    st.stop()
+
+
 # =========================================================
-# GEMINI
+# GEMINI SETUP
 # =========================================================
 
 try:
+
     api_key = st.secrets["GEMINI_API_KEY"]
+
+except KeyError:
+
+    st.error(
+        "❌ GEMINI_API_KEY was not found."
+    )
+
+    st.info(
+        "Go to Streamlit Cloud → Manage app → "
+        "Settings → Secrets and add your Gemini API key."
+    )
+
+    st.stop()
+
+
+try:
 
     client = genai.Client(
         api_key=api_key
     )
 
 except Exception as e:
-    st.error("❌ Gemini could not be started.")
+
+    st.error(
+        "❌ Could not connect to Gemini."
+    )
+
     st.code(str(e))
+
     st.stop()
 
-MODEL = "gemini-2.5-flash"
 
+# New Gemini model
+MODEL = "gemini-3.8-flash"
+
+
+# =========================================================
+# GEMINI FUNCTION
+# =========================================================
 
 def ask_gemini(prompt):
+
     try:
+
         response = client.models.generate_content(
             model=MODEL,
             contents=prompt
         )
 
-        if response and response.text:
-            return response.text
+        if response is None:
+            st.error(
+                "❌ Gemini returned no response."
+            )
+            return None
 
-        return "Gemini did not return a response."
+        if not response.text:
+            st.error(
+                "❌ Gemini returned an empty response."
+            )
+            return None
+
+        return response.text
 
     except Exception as e:
-        st.error("❌ Gemini error:")
-        st.code(str(e))
+
+        st.error(
+            "❌ Gemini error"
+        )
+
+        st.code(
+            str(e)
+        )
+
         return None
 
 
@@ -81,13 +159,22 @@ def ask_gemini(prompt):
 
 st.title("📚 Study Buddy")
 
-st.write(f"Welcome, **{name}**! 👋")
-st.caption(f"Signed in as: {email}")
+st.write(
+    f"Welcome, **{name}**! 👋"
+)
+
+st.caption(
+    f"Signed in as: {email}"
+)
+
 
 if st.button("🚪 Sign out"):
+
     st.logout()
 
+
 st.divider()
+
 
 # =========================================================
 # NOTES
@@ -98,17 +185,20 @@ st.header("📖 Your Notes")
 notes = st.text_area(
     "Paste your notes here",
     height=300,
-    placeholder="Paste your class notes here..."
+    placeholder=(
+        "Paste your class notes here..."
+    )
 )
 
+
 # =========================================================
-# STUDY OPTIONS
+# STUDY TOOLS
 # =========================================================
 
-st.header("🎓 What do you want to make?")
+st.header("🎓 Choose a Study Tool")
 
 option = st.selectbox(
-    "Choose a study tool",
+    "What would you like Study Buddy to create?",
     [
         "📝 Quiz",
         "🧠 Flashcards",
@@ -117,19 +207,28 @@ option = st.selectbox(
     ]
 )
 
+
 # =========================================================
-# GENERATE
+# GENERATE BUTTON
 # =========================================================
 
-if st.button("✨ Generate", use_container_width=True):
+if st.button(
+    "✨ Generate",
+    use_container_width=True
+):
 
     if not notes.strip():
-        st.warning("⚠️ Please paste your notes first.")
+
+        st.warning(
+            "⚠️ Please paste your notes first."
+        )
+
         st.stop()
 
-    # -----------------------------------------------------
+
+    # =====================================================
     # QUIZ
-    # -----------------------------------------------------
+    # =====================================================
 
     if option == "📝 Quiz":
 
@@ -137,31 +236,33 @@ if st.button("✨ Generate", use_container_width=True):
 You are Study Buddy, a helpful school study assistant.
 
 Create a 10-question multiple-choice quiz using ONLY
-the student's notes.
+the information in the student's notes.
 
-Each question must have:
+For every question:
 
-A. answer
-B. answer
-C. answer
-D. answer
-
-After each question, show:
-
-Correct Answer:
-Explanation:
+1. Write the question.
+2. Give four choices:
+   A.
+   B.
+   C.
+   D.
+3. Give the correct answer.
+4. Give a short explanation.
 
 Make the questions useful for studying.
 
-Do not make up information that is not in the notes.
+Do not invent information that is not contained
+in the student's notes.
 
-NOTES:
+STUDENT NOTES:
+
 {notes}
 """
 
-    # -----------------------------------------------------
+
+    # =====================================================
     # FLASHCARDS
-    # -----------------------------------------------------
+    # =====================================================
 
     elif option == "🧠 Flashcards":
 
@@ -174,57 +275,69 @@ Use this format:
 
 ### Flashcard 1
 
-**Question:** question
+**Question:** ...
 
-**Answer:** answer
+**Answer:** ...
 
-Focus on important vocabulary, definitions,
-concepts, facts, people, dates, and processes.
+Create flashcards about:
 
-Keep answers clear and easy to memorize.
+- Important vocabulary
+- Definitions
+- Important facts
+- Key concepts
+- People
+- Dates
+- Processes
 
-Only use information from the notes.
+Keep the answers short and easy to memorize.
 
-NOTES:
+Only use information from the student's notes.
+
+STUDENT NOTES:
+
 {notes}
 """
 
-    # -----------------------------------------------------
+
+    # =====================================================
     # STUDY GUIDE
-    # -----------------------------------------------------
+    # =====================================================
 
     elif option == "📚 Study Guide":
 
         prompt = f"""
 You are Study Buddy, a helpful school study assistant.
 
-Turn the student's notes into a clear study guide.
+Turn the student's notes into a clear and organized
+study guide.
 
-Include:
+Use these sections:
 
-# Main Topics
+# 📌 Main Topics
 
-# Important Vocabulary
+# 📖 Important Vocabulary
 
-# Key Facts
+# ⭐ Key Facts
 
-# Important Concepts
+# 🧠 Important Concepts
 
-# Things to Remember
+# ❗ Things to Remember
 
-# Quick Review
+# 📝 Quick Review
 
-Explain difficult ideas in simple language.
+Explain difficult ideas using simple language.
 
-Only use information supported by the notes.
+Only use information supported by the student's notes.
 
-NOTES:
+STUDENT NOTES:
+
 {notes}
 """
 
-    # -----------------------------------------------------
+
+    # =====================================================
     # EXPLAIN NOTES
-    # -----------------------------------------------------
+    # =====================================================
 
     else:
 
@@ -243,22 +356,34 @@ For each major topic:
 
 Make the explanation easy for a student to understand.
 
-Do not invent information that is not supported by the notes.
+Do not invent information that is not supported
+by the student's notes.
 
-NOTES:
+STUDENT NOTES:
+
 {notes}
 """
 
+
     # =====================================================
-    # GEMINI RESPONSE
+    # GENERATE
     # =====================================================
 
     st.divider()
+
     st.header("✨ Your Study Material")
 
-    with st.spinner("🤖 Study Buddy is working..."):
+    with st.spinner(
+        "🤖 Study Buddy is working..."
+    ):
 
-        result = ask_gemini(prompt)
+        result = ask_gemini(
+            prompt
+        )
+
 
     if result:
-        st.markdown(result)
+
+        st.markdown(
+            result
+        )
