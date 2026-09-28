@@ -1,9 +1,10 @@
+```python
 import streamlit as st
 from google import genai
 
 
 # =========================================================
-# PAGE SETTINGS
+# PAGE CONFIG
 # =========================================================
 
 st.set_page_config(
@@ -14,38 +15,6 @@ st.set_page_config(
 
 
 # =========================================================
-# GEMINI SETUP
-# =========================================================
-
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-
-    client = genai.Client(
-        api_key=api_key
-    )
-
-except Exception:
-    st.error("❌ Gemini API key is missing.")
-    st.info(
-        "Go to Streamlit Cloud → Manage app → Settings → Secrets "
-        "and add GEMINI_API_KEY."
-    )
-    st.stop()
-
-
-MODEL = "gemini-2.5-flash"
-
-
-def ask_gemini(prompt):
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=prompt
-    )
-
-    return response.text
-
-
-# =========================================================
 # GOOGLE LOGIN
 # =========================================================
 
@@ -53,15 +22,10 @@ if not st.user.is_logged_in:
 
     st.title("📚 Study Buddy")
 
-    st.subheader("Welcome to Study Buddy!")
+    st.subheader("Welcome!")
 
     st.write(
-        "Sign in with your Google account to start studying."
-    )
-
-    st.info(
-        "Google will verify your account and provide your name "
-        "and email automatically."
+        "Sign in with Google to use Study Buddy."
     )
 
     if st.button(
@@ -74,32 +38,91 @@ if not st.user.is_logged_in:
 
 
 # =========================================================
-# GET GOOGLE ACCOUNT
+# GOOGLE USER INFORMATION
 # =========================================================
 
-name = getattr(st.user, "name", None)
-email = getattr(st.user, "email", None)
-email_verified = getattr(
-    st.user,
+name = st.user.get("name", "Student")
+email = st.user.get("email", "")
+email_verified = st.user.get(
     "email_verified",
     False
 )
 
 
+if not email:
+    st.error("❌ Google did not provide an email address.")
+    st.logout()
+    st.stop()
+
+
 # =========================================================
-# VERIFY GOOGLE ACCOUNT
+# GEMINI API KEY
 # =========================================================
 
-if not email or not email_verified:
+try:
 
-    st.error(
-        "❌ Your Google account could not be verified."
+    api_key = st.secrets["GEMINI_API_KEY"]
+
+except KeyError:
+
+    st.error("❌ Gemini API key was not found.")
+
+    st.info(
+        "Go to Streamlit Cloud → Manage app → Settings → "
+        "Secrets and add GEMINI_API_KEY."
     )
 
-    if st.button("Try again"):
-        st.logout()
+    st.stop()
+
+
+# =========================================================
+# CONNECT TO GEMINI
+# =========================================================
+
+try:
+
+    client = genai.Client(
+        api_key=api_key
+    )
+
+except Exception as e:
+
+    st.error("❌ Could not connect to Gemini.")
+
+    st.code(str(e))
 
     st.stop()
+
+
+MODEL = "gemini-2.5-flash"
+
+
+# =========================================================
+# GEMINI FUNCTION
+# =========================================================
+
+def ask_gemini(prompt):
+
+    try:
+
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt
+        )
+
+        if not response or not response.text:
+
+            return "Gemini did not return an answer."
+
+        return response.text
+
+    except Exception as e:
+
+        st.error("❌ Gemini error")
+
+        st.code(str(e))
+
+        return None
 
 
 # =========================================================
@@ -113,11 +136,12 @@ st.write(
 )
 
 st.caption(
-    f"Signed in with: {email}"
+    f"Signed in as: {email}"
 )
 
 
 if st.button("🚪 Sign out"):
+
     st.logout()
 
 
@@ -125,7 +149,7 @@ st.divider()
 
 
 # =========================================================
-# NOTES INPUT
+# NOTES
 # =========================================================
 
 st.header("📖 Your Notes")
@@ -134,8 +158,7 @@ notes = st.text_area(
     "Paste your notes here",
     height=300,
     placeholder=(
-        "Paste your class notes here and Study Buddy "
-        "will turn them into study material..."
+        "Paste your class notes here..."
     )
 )
 
@@ -158,89 +181,102 @@ option = st.selectbox(
 
 
 # =========================================================
-# QUIZ
+# GENERATE
 # =========================================================
 
-def create_quiz(notes):
+if st.button(
+    "✨ Generate",
+    use_container_width=True
+):
 
-    return f"""
-You are Study Buddy, an AI school study assistant.
+    if not notes.strip():
 
-Create a quiz using ONLY the information in the notes.
+        st.warning(
+            "⚠️ Please paste your notes first."
+        )
 
-Create 10 multiple-choice questions.
+        st.stop()
+
+
+    # =====================================================
+    # QUIZ
+    # =====================================================
+
+    if option == "📝 Quiz":
+
+        prompt = f"""
+You are Study Buddy, a helpful school study assistant.
+
+Create a 10-question multiple-choice quiz based ONLY
+on the student's notes below.
 
 For every question:
 
-1. Write the question.
-2. Give four answer choices:
-   A.
-   B.
-   C.
-   D.
-3. Clearly state the correct answer.
-4. Give a short explanation of the answer.
+- Give four choices: A, B, C, and D.
+- Clearly identify the correct answer.
+- Give a short explanation.
 
-Make the questions test understanding rather than just copying
-sentences from the notes.
+Make the questions test understanding.
 
-Do not make up facts that aren't supported by the notes.
+Do not invent information that is not in the notes.
 
-NOTES:
+STUDENT NOTES:
 
 {notes}
 """
 
 
-# =========================================================
-# FLASHCARDS
-# =========================================================
+    # =====================================================
+    # FLASHCARDS
+    # =====================================================
 
-def create_flashcards(notes):
+    elif option == "🧠 Flashcards":
 
-    return f"""
-You are Study Buddy, an AI school study assistant.
+        prompt = f"""
+You are Study Buddy, a helpful school study assistant.
 
-Create 15 useful flashcards from the student's notes.
+Create 15 flashcards from the student's notes.
 
 Use this format:
 
 ### Flashcard 1
 
 **Question:** ...
+
 **Answer:** ...
 
-Keep the answers short and easy to memorize.
+Focus on important:
 
-Focus on:
-- Important vocabulary
-- Important people
-- Important dates
+- Vocabulary
 - Definitions
-- Key concepts
-- Important facts
+- Concepts
+- Facts
+- People
+- Dates
+- Processes
 
-Only use information found in the notes.
+Keep answers short and easy to study.
 
-NOTES:
+Only use information from the notes.
+
+STUDENT NOTES:
 
 {notes}
 """
 
 
-# =========================================================
-# STUDY GUIDE
-# =========================================================
+    # =====================================================
+    # STUDY GUIDE
+    # =====================================================
 
-def create_study_guide(notes):
+    elif option == "📚 Study Guide":
 
-    return f"""
-You are Study Buddy, an AI school study assistant.
+        prompt = f"""
+You are Study Buddy, a helpful school study assistant.
 
-Turn the student's notes into a complete but easy-to-read
-study guide.
+Turn the student's notes into a clear study guide.
 
-Organize it using:
+Use these sections:
 
 # 📌 Main Topics
 
@@ -256,103 +292,110 @@ Organize it using:
 
 Explain difficult ideas in simple language.
 
-Only use information supported by the student's notes.
+Only use information supported by the notes.
 
-NOTES:
+STUDENT NOTES:
 
 {notes}
 """
 
 
-# =========================================================
-# EXPLAIN NOTES
-# =========================================================
+    # =====================================================
+    # EXPLAIN NOTES
+    # =====================================================
 
-def explain_notes(notes):
+    else:
 
-    return f"""
-You are Study Buddy, an AI school study assistant.
+        prompt = f"""
+You are Study Buddy, a helpful school study assistant.
 
-Explain the student's notes so that a student can understand
-them easily.
+Explain these notes in a way that is easy for a student
+to understand.
 
-For every major topic:
+For each major topic:
 
 - Explain what it means.
 - Explain the important idea.
 - Define difficult vocabulary.
-- Give a simple example when helpful.
-- Point out what the student should remember.
+- Give a simple example when useful.
+- Explain what the student should remember.
 
-Use simple language without removing important information.
+Use simple language while keeping the important information.
 
-Do not add unsupported information.
+Do not invent information that is not supported by the notes.
 
-NOTES:
+STUDENT NOTES:
 
 {notes}
 """
 
 
-# =========================================================
-# GENERATE BUTTON
-# =========================================================
+    # =====================================================
+    # GENERATE WITH GEMINI
+    # =====================================================
 
-if st.button(
-    "✨ Generate",
-    use_container_width=True
-):
+    st.divider()
 
-    if not notes.strip():
-
-        st.warning(
-            "⚠️ Please paste your notes before generating."
-        )
-
-        st.stop()
-
-
-    # Choose prompt
-
-    if option == "📝 Quiz":
-
-        prompt = create_quiz(notes)
-
-    elif option == "🧠 Flashcards":
-
-        prompt = create_flashcards(notes)
-
-    elif option == "📚 Study Guide":
-
-        prompt = create_study_guide(notes)
-
-    else:
-
-        prompt = explain_notes(notes)
-
-
-    # Generate response
+    st.header("✨ Your Study Material")
 
     with st.spinner(
-        "🤖 Study Buddy is creating your study material..."
+        "🤖 Study Buddy is working..."
     ):
 
-        try:
+        result = ask_gemini(prompt)
 
-            result = ask_gemini(prompt)
+    if result:
 
-            st.divider()
+        st.markdown(result)
+```
 
-            st.header("✨ Your Study Material")
+### 2. Replace your `requirements.txt`
 
-            st.markdown(result)
+Use exactly:
 
-        except Exception as e:
+```text
+streamlit>=1.42.0
+google-genai>=1.0.0
+Authlib>=1.3.2
+```
 
-            st.error(
-                "❌ Something went wrong while using Gemini."
-            )
+### 3. Check your Streamlit Secrets
 
-            st.caption(
-                "Check your Gemini API key and try again."
-            )
+Your Secrets should contain:
+
+```toml
+GEMINI_API_KEY = "YOUR_REAL_GEMINI_API_KEY"
+
+[auth]
+redirect_uri = "https://ai-study-buddy-ak.streamlit.app/oauth2callback"
+cookie_secret = "YOUR_RANDOM_SECRET"
+client_id = "YOUR_GOOGLE_CLIENT_ID"
+client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+```
+
+**Don't put the actual keys in GitHub or send them to me.**
+
+### 4. Commit both files
+
+In GitHub:
+
+**`app.py` → Edit → replace everything → Commit changes**
+
+Then:
+
+**`requirements.txt` → Edit → replace everything → Commit changes**
+
+Streamlit should redeploy.
+
+### 5. Test Gemini
+
+After Google login, put this into the notes box:
+
+```text
+The mitochondria produces ATP and is known as the powerhouse of the cell.
+```
+
+Select **📝 Quiz** and click **Generate**.
+
+If Gemini still fails, this version will show the **actual Gemini error** on the screen instead of just saying "Something went wrong." That error will tell us exactly what needs fixing.
