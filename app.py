@@ -60,86 +60,121 @@ if not email_verified:
 # =========================================================
 
 try:
+
     api_key = st.secrets["GEMINI_API_KEY"]
+
 except KeyError:
+
     st.error("❌ GEMINI_API_KEY was not found.")
+
     st.info(
         "Go to Streamlit Cloud → Manage app → Settings → "
         "Secrets and add your Gemini API key."
     )
+
     st.stop()
 
 
 try:
-    client = genai.Client(api_key=api_key)
+
+    client = genai.Client(
+        api_key=api_key
+    )
+
 except Exception as e:
+
     st.error("❌ Could not connect to Gemini.")
     st.code(str(e))
     st.stop()
 
 
 # =========================================================
-# GEMINI FUNCTION WITH RETRY + FALLBACK
+# GEMINI MODEL
+# =========================================================
+
+MODEL = "gemini-3.8-flash"
+
+
+# =========================================================
+# GEMINI FUNCTION
 # =========================================================
 
 def ask_gemini(prompt):
 
-    models = [
-        "gemini-3.8-flash",
-        "gemini-3.8-flash-lite"
-    ]
+    for attempt in range(3):
 
-    last_error = None
+        try:
 
-    for model in models:
+            response = client.models.generate_content(
+                model=MODEL,
+                contents=prompt
+            )
 
-        for attempt in range(2):
+            if response and response.text:
+                return response.text
 
-            try:
+            st.error(
+                "❌ Gemini returned an empty response."
+            )
 
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt
+            return None
+
+        except Exception as e:
+
+            error_text = str(e)
+
+            # ---------------------------------------------
+            # TEMPORARY 503 ERROR
+            # ---------------------------------------------
+
+            if (
+                "503" in error_text
+                or "UNAVAILABLE" in error_text
+                or "high demand" in error_text.lower()
+            ):
+
+                if attempt < 2:
+
+                    time.sleep(3)
+                    continue
+
+                st.error(
+                    "⚠️ Gemini is temporarily busy."
                 )
 
-                if response and response.text:
-                    return response.text
+                st.info(
+                    "Please wait a few seconds and try again."
+                )
 
-                last_error = "Gemini returned an empty response."
-
-            except Exception as e:
-
-                last_error = e
-                error_text = str(e)
-
-                # Retry temporary overload errors
-                if (
-                    "503" in error_text
-                    or "UNAVAILABLE" in error_text
-                    or "high demand" in error_text.lower()
-                ):
-
-                    if attempt == 0:
-                        time.sleep(2)
-                        continue
-
-                    break
-
-                # Other errors should be shown immediately
-                st.error("❌ Gemini error")
-                st.code(error_text)
                 return None
 
-    st.error(
-        "⚠️ Gemini is temporarily busy."
-    )
+            # ---------------------------------------------
+            # MODEL ERROR
+            # ---------------------------------------------
 
-    st.info(
-        "Please wait a few seconds and press Generate again."
-    )
+            if (
+                "404" in error_text
+                or "NOT_FOUND" in error_text
+            ):
 
-    if last_error:
-        st.caption(str(last_error))
+                st.error(
+                    "❌ The Gemini model is not available "
+                    "for this API key."
+                )
+
+                st.code(error_text)
+
+                return None
+
+            # ---------------------------------------------
+            # OTHER ERROR
+            # ---------------------------------------------
+
+            st.error("❌ Gemini error")
+
+            st.code(error_text)
+
+            return None
 
     return None
 
@@ -150,11 +185,18 @@ def ask_gemini(prompt):
 
 st.title("📚 Study Buddy")
 
-st.write(f"Welcome, **{name}**! 👋")
-st.caption(f"Signed in as: {email}")
+st.write(
+    f"Welcome, **{name}**! 👋"
+)
+
+st.caption(
+    f"Signed in as: {email}"
+)
+
 
 if st.button("🚪 Sign out"):
     st.logout()
+
 
 st.divider()
 
@@ -197,7 +239,7 @@ def generate_quiz(notes):
 
     prompt = f"""
 Create a 10-question multiple-choice quiz using ONLY
-the student's notes.
+the information in the student's notes.
 
 Return ONLY valid JSON.
 
@@ -217,7 +259,7 @@ Use exactly this format:
   }}
 ]
 
-The answer must be:
+The answer number means:
 
 0 = first option
 1 = second option
@@ -251,7 +293,10 @@ NOTES:
 
     except Exception as e:
 
-        st.error("❌ Gemini returned an invalid quiz.")
+        st.error(
+            "❌ Gemini returned an invalid quiz."
+        )
+
         st.code(str(e))
 
         return None
@@ -279,6 +324,8 @@ Use exactly this format:
 
 Do not include markdown.
 Do not include anything outside the JSON.
+
+Make each question useful for studying.
 
 NOTES:
 
@@ -371,7 +418,7 @@ For each major topic:
 Make the explanation easy for a student to understand.
 
 Do not invent information that is not supported by
-the notes.
+the student's notes.
 
 NOTES:
 
@@ -380,7 +427,7 @@ NOTES:
 
 
 # =========================================================
-# GENERATE BUTTON
+# GENERATE
 # =========================================================
 
 if st.button(
@@ -412,7 +459,9 @@ if st.button(
         if quiz:
 
             st.session_state.quiz = quiz
+
             st.session_state.quiz_answers = {}
+
             st.session_state.quiz_submitted = {}
 
 
@@ -520,9 +569,11 @@ if "quiz" in st.session_state:
             question["question"]
         )
 
-        submitted = st.session_state.quiz_submitted.get(
-            i,
-            False
+        submitted = (
+            st.session_state.quiz_submitted.get(
+                i,
+                False
+            )
         )
 
         if not submitted:
@@ -548,7 +599,9 @@ if "quiz" in st.session_state:
                 else:
 
                     selected_index = (
-                        question["options"].index(answer)
+                        question["options"].index(
+                            answer
+                        )
                     )
 
                     st.session_state.quiz_answers[i] = (
@@ -567,15 +620,21 @@ if "quiz" in st.session_state:
                 st.session_state.quiz_answers[i]
             )
 
-            correct_index = question["answer"]
+            correct_index = (
+                question["answer"]
+            )
 
             if selected_index == correct_index:
 
-                st.success("✅ Correct!")
+                st.success(
+                    "✅ Correct!"
+                )
 
             else:
 
-                st.error("❌ Incorrect.")
+                st.error(
+                    "❌ Incorrect."
+                )
 
             st.info(
                 "Correct answer: "
@@ -621,10 +680,14 @@ if "quiz" in st.session_state:
             f"You scored **{score}/{len(quiz)}**."
         )
 
-        if st.button("🔄 Take a New Quiz"):
+        if st.button(
+            "🔄 Take a New Quiz"
+        ):
 
             del st.session_state.quiz
+
             st.session_state.quiz_answers = {}
+
             st.session_state.quiz_submitted = {}
 
             st.rerun()
