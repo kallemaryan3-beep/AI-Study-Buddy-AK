@@ -1,5 +1,7 @@
 import streamlit as st
 from google import genai
+import json
+import re
 
 
 # =========================================================
@@ -20,7 +22,6 @@ st.set_page_config(
 if not st.user.is_logged_in:
 
     st.title("📚 Study Buddy")
-
     st.subheader("Welcome to Study Buddy!")
 
     st.write(
@@ -40,38 +41,21 @@ if not st.user.is_logged_in:
 # GOOGLE ACCOUNT
 # =========================================================
 
-name = st.user.get(
-    "name",
-    "Student"
-)
-
-email = st.user.get(
-    "email",
-    ""
-)
-
-email_verified = st.user.get(
-    "email_verified",
-    False
-)
-
+name = st.user.get("name", "Student")
+email = st.user.get("email", "")
+email_verified = st.user.get("email_verified", False)
 
 if not email:
-    st.error(
-        "❌ Google did not provide an email address."
-    )
+    st.error("❌ Google did not provide an email address.")
     st.stop()
 
-
 if not email_verified:
-    st.error(
-        "❌ Google could not verify this account."
-    )
+    st.error("❌ Google could not verify this account.")
     st.stop()
 
 
 # =========================================================
-# GEMINI SETUP
+# GEMINI
 # =========================================================
 
 try:
@@ -80,13 +64,11 @@ try:
 
 except KeyError:
 
-    st.error(
-        "❌ GEMINI_API_KEY was not found."
-    )
+    st.error("❌ GEMINI_API_KEY was not found.")
 
     st.info(
-        "Go to Streamlit Cloud → Manage app → "
-        "Settings → Secrets and add your Gemini API key."
+        "Go to Streamlit Cloud → Manage app → Settings → "
+        "Secrets and add your Gemini API key."
     )
 
     st.stop()
@@ -100,16 +82,11 @@ try:
 
 except Exception as e:
 
-    st.error(
-        "❌ Could not connect to Gemini."
-    )
-
+    st.error("❌ Could not connect to Gemini.")
     st.code(str(e))
-
     st.stop()
 
 
-# New Gemini model
 MODEL = "gemini-3.8-flash"
 
 
@@ -127,28 +104,17 @@ def ask_gemini(prompt):
         )
 
         if response is None:
-            st.error(
-                "❌ Gemini returned no response."
-            )
             return None
 
         if not response.text:
-            st.error(
-                "❌ Gemini returned an empty response."
-            )
             return None
 
         return response.text
 
     except Exception as e:
 
-        st.error(
-            "❌ Gemini error"
-        )
-
-        st.code(
-            str(e)
-        )
+        st.error("❌ Gemini error")
+        st.code(str(e))
 
         return None
 
@@ -159,19 +125,11 @@ def ask_gemini(prompt):
 
 st.title("📚 Study Buddy")
 
-st.write(
-    f"Welcome, **{name}**! 👋"
-)
-
-st.caption(
-    f"Signed in as: {email}"
-)
-
+st.write(f"Welcome, **{name}**! 👋")
+st.caption(f"Signed in as: {email}")
 
 if st.button("🚪 Sign out"):
-
     st.logout()
-
 
 st.divider()
 
@@ -185,14 +143,12 @@ st.header("📖 Your Notes")
 notes = st.text_area(
     "Paste your notes here",
     height=300,
-    placeholder=(
-        "Paste your class notes here..."
-    )
+    placeholder="Paste your class notes here..."
 )
 
 
 # =========================================================
-# STUDY TOOLS
+# STUDY TOOL
 # =========================================================
 
 st.header("🎓 Choose a Study Tool")
@@ -206,6 +162,195 @@ option = st.selectbox(
         "💡 Explain My Notes"
     ]
 )
+
+
+# =========================================================
+# QUIZ GENERATOR
+# =========================================================
+
+def generate_quiz(notes):
+
+    prompt = f"""
+Create a 10-question multiple-choice quiz from ONLY
+the student's notes.
+
+Return ONLY valid JSON.
+
+Use exactly this format:
+
+[
+  {{
+    "question": "Question here",
+    "options": [
+      "Option A",
+      "Option B",
+      "Option C",
+      "Option D"
+    ],
+    "answer": 0,
+    "explanation": "Short explanation"
+  }}
+]
+
+The "answer" must be the number of the correct option:
+
+0 = first option
+1 = second option
+2 = third option
+3 = fourth option
+
+Do not include markdown.
+Do not include anything outside the JSON.
+
+NOTES:
+{notes}
+"""
+
+    result = ask_gemini(prompt)
+
+    if not result:
+        return None
+
+    try:
+
+        result = result.strip()
+
+        result = re.sub(
+            r"```json|```",
+            "",
+            result
+        ).strip()
+
+        return json.loads(result)
+
+    except Exception as e:
+
+        st.error("❌ Gemini returned an invalid quiz.")
+
+        st.code(str(e))
+
+        return None
+
+
+# =========================================================
+# FLASHCARD GENERATOR
+# =========================================================
+
+def generate_flashcards(notes):
+
+    prompt = f"""
+Create 15 flashcards from ONLY the student's notes.
+
+Return ONLY valid JSON.
+
+Use exactly this format:
+
+[
+  {{
+    "question": "Question here",
+    "answer": "Answer here"
+  }}
+]
+
+Do not include markdown.
+Do not include anything outside the JSON.
+
+NOTES:
+{notes}
+"""
+
+    result = ask_gemini(prompt)
+
+    if not result:
+        return None
+
+    try:
+
+        result = result.strip()
+
+        result = re.sub(
+            r"```json|```",
+            "",
+            result
+        ).strip()
+
+        return json.loads(result)
+
+    except Exception as e:
+
+        st.error(
+            "❌ Gemini returned invalid flashcards."
+        )
+
+        st.code(str(e))
+
+        return None
+
+
+# =========================================================
+# STUDY GUIDE
+# =========================================================
+
+def generate_study_guide(notes):
+
+    return f"""
+You are Study Buddy, a helpful school study assistant.
+
+Turn the student's notes into a clear and organized
+study guide.
+
+Use these sections:
+
+# 📌 Main Topics
+
+# 📖 Important Vocabulary
+
+# ⭐ Key Facts
+
+# 🧠 Important Concepts
+
+# ❗ Things to Remember
+
+# 📝 Quick Review
+
+Explain difficult ideas using simple language.
+
+Only use information supported by the notes.
+
+NOTES:
+
+{notes}
+"""
+
+
+# =========================================================
+# EXPLAIN NOTES
+# =========================================================
+
+def generate_explanation(notes):
+
+    return f"""
+You are Study Buddy, a helpful school study assistant.
+
+Explain the student's notes in simple language.
+
+For each major topic:
+
+- Explain what it means.
+- Explain the important idea.
+- Define difficult vocabulary.
+- Give a simple example when useful.
+- Explain what the student should remember.
+
+Make the explanation easy for a student to understand.
+
+Do not invent information that is not supported by
+the student's notes.
+
+NOTES:
+
+{notes}
+"""
 
 
 # =========================================================
@@ -232,32 +377,14 @@ if st.button(
 
     if option == "📝 Quiz":
 
-        prompt = f"""
-You are Study Buddy, a helpful school study assistant.
+        quiz = generate_quiz(notes)
 
-Create a 10-question multiple-choice quiz using ONLY
-the information in the student's notes.
+        if quiz:
 
-For every question:
-
-1. Write the question.
-2. Give four choices:
-   A.
-   B.
-   C.
-   D.
-3. Give the correct answer.
-4. Give a short explanation.
-
-Make the questions useful for studying.
-
-Do not invent information that is not contained
-in the student's notes.
-
-STUDENT NOTES:
-
-{notes}
-"""
+            st.session_state.quiz = quiz
+            st.session_state.quiz_index = 0
+            st.session_state.quiz_answers = {}
+            st.session_state.quiz_submitted = {}
 
 
     # =====================================================
@@ -266,37 +393,11 @@ STUDENT NOTES:
 
     elif option == "🧠 Flashcards":
 
-        prompt = f"""
-You are Study Buddy, a helpful school study assistant.
+        flashcards = generate_flashcards(notes)
 
-Create 15 flashcards from the student's notes.
+        if flashcards:
 
-Use this format:
-
-### Flashcard 1
-
-**Question:** ...
-
-**Answer:** ...
-
-Create flashcards about:
-
-- Important vocabulary
-- Definitions
-- Important facts
-- Key concepts
-- People
-- Dates
-- Processes
-
-Keep the answers short and easy to memorize.
-
-Only use information from the student's notes.
-
-STUDENT NOTES:
-
-{notes}
-"""
+            st.session_state.flashcards = flashcards
 
 
     # =====================================================
@@ -305,34 +406,17 @@ STUDENT NOTES:
 
     elif option == "📚 Study Guide":
 
-        prompt = f"""
-You are Study Buddy, a helpful school study assistant.
+        with st.spinner(
+            "🤖 Creating your study guide..."
+        ):
 
-Turn the student's notes into a clear and organized
-study guide.
+            result = ask_gemini(
+                generate_study_guide(notes)
+            )
 
-Use these sections:
+        if result:
 
-# 📌 Main Topics
-
-# 📖 Important Vocabulary
-
-# ⭐ Key Facts
-
-# 🧠 Important Concepts
-
-# ❗ Things to Remember
-
-# 📝 Quick Review
-
-Explain difficult ideas using simple language.
-
-Only use information supported by the student's notes.
-
-STUDENT NOTES:
-
-{notes}
-"""
+            st.session_state.study_guide = result
 
 
     # =====================================================
@@ -341,49 +425,203 @@ STUDENT NOTES:
 
     else:
 
-        prompt = f"""
-You are Study Buddy, a helpful school study assistant.
+        with st.spinner(
+            "🤖 Explaining your notes..."
+        ):
 
-Explain the student's notes in simple language.
+            result = ask_gemini(
+                generate_explanation(notes)
+            )
 
-For each major topic:
+        if result:
 
-- Explain what it means.
-- Explain the important idea.
-- Define difficult vocabulary.
-- Give a simple example when useful.
-- Explain what the student should remember.
-
-Make the explanation easy for a student to understand.
-
-Do not invent information that is not supported
-by the student's notes.
-
-STUDENT NOTES:
-
-{notes}
-"""
+            st.session_state.explanation = result
 
 
-    # =====================================================
-    # GENERATE
-    # =====================================================
+# =========================================================
+# FLASHCARDS DISPLAY
+# =========================================================
+
+if "flashcards" in st.session_state:
 
     st.divider()
 
-    st.header("✨ Your Study Material")
+    st.header("🧠 Flashcards")
 
-    with st.spinner(
-        "🤖 Study Buddy is working..."
+    st.write(
+        "Click a question to reveal the answer."
+    )
+
+    for i, card in enumerate(
+        st.session_state.flashcards
     ):
 
-        result = ask_gemini(
-            prompt
+        with st.expander(
+            f"❓ {card['question']}"
+        ):
+
+            st.success(
+                f"💡 {card['answer']}"
+            )
+
+
+# =========================================================
+# QUIZ DISPLAY
+# =========================================================
+
+if "quiz" in st.session_state:
+
+    st.divider()
+
+    st.header("📝 Quiz")
+
+    quiz = st.session_state.quiz
+
+    total = len(quiz)
+
+    score = 0
+
+    for i, question in enumerate(quiz):
+
+        st.subheader(
+            f"Question {i + 1} of {total}"
+        )
+
+        st.write(
+            question["question"]
+        )
+
+        answer = st.radio(
+            "Choose your answer:",
+            question["options"],
+            key=f"quiz_question_{i}",
+            index=None
+        )
+
+        submitted = st.session_state.quiz_submitted.get(
+            i,
+            False
+        )
+
+        if not submitted:
+
+            if st.button(
+                "Submit Answer",
+                key=f"submit_{i}"
+            ):
+
+                if answer is None:
+
+                    st.warning(
+                        "Please choose an answer first."
+                    )
+
+                else:
+
+                    selected_index = (
+                        question["options"].index(
+                            answer
+                        )
+                    )
+
+                    st.session_state.quiz_answers[i] = (
+                        selected_index
+                    )
+
+                    st.session_state.quiz_submitted[i] = (
+                        True
+                    )
+
+                    st.rerun()
+
+        else:
+
+            selected_index = (
+                st.session_state.quiz_answers[i]
+            )
+
+            correct_index = question["answer"]
+
+            if selected_index == correct_index:
+
+                st.success(
+                    "✅ Correct!"
+                )
+
+            else:
+
+                st.error(
+                    "❌ Incorrect."
+                )
+
+            st.info(
+                f"Correct answer: "
+                f"{question['options'][correct_index]}"
+            )
+
+            st.write(
+                f"**Explanation:** "
+                f"{question['explanation']}"
+            )
+
+
+# =========================================================
+# QUIZ SCORE
+# =========================================================
+
+if "quiz" in st.session_state:
+
+    quiz = st.session_state.quiz
+
+    if len(
+        st.session_state.quiz_submitted
+    ) == len(quiz):
+
+        score = 0
+
+        for i, question in enumerate(quiz):
+
+            if (
+                st.session_state.quiz_answers.get(i)
+                == question["answer"]
+            ):
+
+                score += 1
+
+        st.divider()
+
+        st.header("🏆 Quiz Complete!")
+
+        st.write(
+            f"You scored **{score}/{len(quiz)}**."
         )
 
 
-    if result:
+# =========================================================
+# STUDY GUIDE DISPLAY
+# =========================================================
 
-        st.markdown(
-            result
-        )
+if "study_guide" in st.session_state:
+
+    st.divider()
+
+    st.header("📚 Your Study Guide")
+
+    st.markdown(
+        st.session_state.study_guide
+    )
+
+
+# =========================================================
+# EXPLANATION DISPLAY
+# =========================================================
+
+if "explanation" in st.session_state:
+
+    st.divider()
+
+    st.header("💡 Explanation")
+
+    st.markdown(
+        st.session_state.explanation
+    )
