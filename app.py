@@ -2,6 +2,7 @@ import streamlit as st
 from google import genai
 import json
 import re
+import time
 
 
 # =========================================================
@@ -55,68 +56,92 @@ if not email_verified:
 
 
 # =========================================================
-# GEMINI
+# GEMINI SETUP
 # =========================================================
 
 try:
-
     api_key = st.secrets["GEMINI_API_KEY"]
-
 except KeyError:
-
     st.error("❌ GEMINI_API_KEY was not found.")
-
     st.info(
         "Go to Streamlit Cloud → Manage app → Settings → "
         "Secrets and add your Gemini API key."
     )
-
     st.stop()
 
 
 try:
-
-    client = genai.Client(
-        api_key=api_key
-    )
-
+    client = genai.Client(api_key=api_key)
 except Exception as e:
-
     st.error("❌ Could not connect to Gemini.")
     st.code(str(e))
     st.stop()
 
 
-MODEL = "gemini-3.8-flash"
-
-
 # =========================================================
-# GEMINI FUNCTION
+# GEMINI FUNCTION WITH RETRY + FALLBACK
 # =========================================================
 
 def ask_gemini(prompt):
 
-    try:
+    models = [
+        "gemini-3.8-flash",
+        "gemini-3.8-flash-lite"
+    ]
 
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt
-        )
+    last_error = None
 
-        if response is None:
-            return None
+    for model in models:
 
-        if not response.text:
-            return None
+        for attempt in range(2):
 
-        return response.text
+            try:
 
-    except Exception as e:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
 
-        st.error("❌ Gemini error")
-        st.code(str(e))
+                if response and response.text:
+                    return response.text
 
-        return None
+                last_error = "Gemini returned an empty response."
+
+            except Exception as e:
+
+                last_error = e
+                error_text = str(e)
+
+                # Retry temporary overload errors
+                if (
+                    "503" in error_text
+                    or "UNAVAILABLE" in error_text
+                    or "high demand" in error_text.lower()
+                ):
+
+                    if attempt == 0:
+                        time.sleep(2)
+                        continue
+
+                    break
+
+                # Other errors should be shown immediately
+                st.error("❌ Gemini error")
+                st.code(error_text)
+                return None
+
+    st.error(
+        "⚠️ Gemini is temporarily busy."
+    )
+
+    st.info(
+        "Please wait a few seconds and press Generate again."
+    )
+
+    if last_error:
+        st.caption(str(last_error))
+
+    return None
 
 
 # =========================================================
@@ -171,7 +196,7 @@ option = st.selectbox(
 def generate_quiz(notes):
 
     prompt = f"""
-Create a 10-question multiple-choice quiz from ONLY
+Create a 10-question multiple-choice quiz using ONLY
 the student's notes.
 
 Return ONLY valid JSON.
@@ -192,7 +217,7 @@ Use exactly this format:
   }}
 ]
 
-The "answer" must be the number of the correct option:
+The answer must be:
 
 0 = first option
 1 = second option
@@ -203,6 +228,7 @@ Do not include markdown.
 Do not include anything outside the JSON.
 
 NOTES:
+
 {notes}
 """
 
@@ -226,7 +252,6 @@ NOTES:
     except Exception as e:
 
         st.error("❌ Gemini returned an invalid quiz.")
-
         st.code(str(e))
 
         return None
@@ -239,7 +264,7 @@ NOTES:
 def generate_flashcards(notes):
 
     prompt = f"""
-Create 15 flashcards from ONLY the student's notes.
+Create 15 flashcards using ONLY the student's notes.
 
 Return ONLY valid JSON.
 
@@ -256,6 +281,7 @@ Do not include markdown.
 Do not include anything outside the JSON.
 
 NOTES:
+
 {notes}
 """
 
@@ -345,7 +371,7 @@ For each major topic:
 Make the explanation easy for a student to understand.
 
 Do not invent information that is not supported by
-the student's notes.
+the notes.
 
 NOTES:
 
@@ -377,12 +403,15 @@ if st.button(
 
     if option == "📝 Quiz":
 
-        quiz = generate_quiz(notes)
+        with st.spinner(
+            "🤖 Creating your quiz..."
+        ):
+
+            quiz = generate_quiz(notes)
 
         if quiz:
 
             st.session_state.quiz = quiz
-            st.session_state.quiz_index = 0
             st.session_state.quiz_answers = {}
             st.session_state.quiz_submitted = {}
 
@@ -393,7 +422,11 @@ if st.button(
 
     elif option == "🧠 Flashcards":
 
-        flashcards = generate_flashcards(notes)
+        with st.spinner(
+            "🤖 Creating your flashcards..."
+        ):
+
+            flashcards = generate_flashcards(notes)
 
         if flashcards:
 
@@ -439,7 +472,7 @@ if st.button(
 
 
 # =========================================================
-# FLASHCARDS DISPLAY
+# FLASHCARDS
 # =========================================================
 
 if "flashcards" in st.session_state:
@@ -466,7 +499,7 @@ if "flashcards" in st.session_state:
 
 
 # =========================================================
-# QUIZ DISPLAY
+# QUIZ
 # =========================================================
 
 if "quiz" in st.session_state:
@@ -477,25 +510,14 @@ if "quiz" in st.session_state:
 
     quiz = st.session_state.quiz
 
-    total = len(quiz)
-
-    score = 0
-
     for i, question in enumerate(quiz):
 
         st.subheader(
-            f"Question {i + 1} of {total}"
+            f"Question {i + 1} of {len(quiz)}"
         )
 
         st.write(
             question["question"]
-        )
-
-        answer = st.radio(
-            "Choose your answer:",
-            question["options"],
-            key=f"quiz_question_{i}",
-            index=None
         )
 
         submitted = st.session_state.quiz_submitted.get(
@@ -504,6 +526,13 @@ if "quiz" in st.session_state:
         )
 
         if not submitted:
+
+            answer = st.radio(
+                "Choose your answer:",
+                question["options"],
+                key=f"quiz_answer_{i}",
+                index=None
+            )
 
             if st.button(
                 "Submit Answer",
@@ -519,9 +548,7 @@ if "quiz" in st.session_state:
                 else:
 
                     selected_index = (
-                        question["options"].index(
-                            answer
-                        )
+                        question["options"].index(answer)
                     )
 
                     st.session_state.quiz_answers[i] = (
@@ -544,24 +571,20 @@ if "quiz" in st.session_state:
 
             if selected_index == correct_index:
 
-                st.success(
-                    "✅ Correct!"
-                )
+                st.success("✅ Correct!")
 
             else:
 
-                st.error(
-                    "❌ Incorrect."
-                )
+                st.error("❌ Incorrect.")
 
             st.info(
-                f"Correct answer: "
-                f"{question['options'][correct_index]}"
+                "Correct answer: "
+                + question["options"][correct_index]
             )
 
             st.write(
-                f"**Explanation:** "
-                f"{question['explanation']}"
+                "**Explanation:** "
+                + question["explanation"]
             )
 
 
@@ -573,9 +596,11 @@ if "quiz" in st.session_state:
 
     quiz = st.session_state.quiz
 
-    if len(
+    submitted_count = len(
         st.session_state.quiz_submitted
-    ) == len(quiz):
+    )
+
+    if submitted_count == len(quiz):
 
         score = 0
 
@@ -596,9 +621,17 @@ if "quiz" in st.session_state:
             f"You scored **{score}/{len(quiz)}**."
         )
 
+        if st.button("🔄 Take a New Quiz"):
+
+            del st.session_state.quiz
+            st.session_state.quiz_answers = {}
+            st.session_state.quiz_submitted = {}
+
+            st.rerun()
+
 
 # =========================================================
-# STUDY GUIDE DISPLAY
+# STUDY GUIDE
 # =========================================================
 
 if "study_guide" in st.session_state:
@@ -613,7 +646,7 @@ if "study_guide" in st.session_state:
 
 
 # =========================================================
-# EXPLANATION DISPLAY
+# EXPLANATION
 # =========================================================
 
 if "explanation" in st.session_state:
